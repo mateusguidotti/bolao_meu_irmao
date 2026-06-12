@@ -186,6 +186,7 @@ main{ padding:40px 0 80px; }
 }
 .flip-inputs span{ color:var(--chalk-dim); font-family:var(--display); font-size:20px; }
 .guess-pts{ font-family:var(--mono); font-size:11px; padding:3px 8px; border-radius:5px; border:1px solid var(--pitch-line); }
+.guess-pts.pts-5{ color:var(--amber); border-color:rgba(255,198,64,.5); background:var(--amber-dim); font-weight:700; }
 .guess-pts.pts-3{ color:var(--amber); border-color:rgba(255,198,64,.4); background:var(--amber-dim); }
 .guess-pts.pts-1{ color:var(--teal); border-color:rgba(62,207,142,.35); background:rgba(62,207,142,.08); }
 .guess-pts.pts-0{ color:var(--chalk-dim); }
@@ -317,7 +318,7 @@ footer{ border-top:1px solid var(--pitch-line); padding:28px 0; text-align:cente
         <div>
           <div class="eyebrow">Painel geral</div>
           <h1>Jogos &amp; palpites</h1>
-          <p>Dê seu palpite para cada partida antes do horário de início. Resultado exato vale 3 pontos, acerto do vencedor (ou empate) vale 1 ponto.</p>
+          <p>Dê seu palpite para cada partida antes do horário de início. Placar exato vale 5 pontos; resultado certo vale 2; acertar o placar de um dos times soma +1; empate certo com placar errado soma +1 extra.</p>
         </div>
         <button class="btn btn-sm" onclick="loadMatches()">↻ Atualizar</button>
       </div>
@@ -591,14 +592,46 @@ function fmtDate(iso){
   return { dia, hora, started: d.getTime() <= Date.now() };
 }
 
-/* points: 3 = exact, 1 = correct outcome, 0 = wrong */
+/* ============================================================
+   REGRAS DE PONTUAÇÃO
+   - Placar exato: 5 pontos (não acumula com as demais)
+   - Resultado certo (vencedor/empate certo): +2 pontos
+   - Acertou o placar de um dos times (mesmo com resultado errado): +1 ponto
+   - Empate real com placar errado (mas empate acertado): +1 ponto extra
+   Os bônus acima (exceto o placar exato) são somados entre si.
+   ============================================================ */
 function calcPoints(gHome, gAway, rHome, rAway){
   if (rHome===null || rAway===null || rHome===undefined || rAway===undefined) return null;
-  if (gHome===rHome && gAway===rAway) return 3;
+
+  // placar exato
+  if (gHome===rHome && gAway===rAway) return 5;
+
+  let points = 0;
   const guessOutcome = Math.sign(gHome - gAway);
   const realOutcome = Math.sign(rHome - rAway);
-  if (guessOutcome === realOutcome) return 1;
-  return 0;
+  const resultCorrect = guessOutcome === realOutcome;
+  const goalMatch = (gHome===rHome) || (gAway===rAway);
+
+  if (resultCorrect) points += 2;
+  if (goalMatch) points += 1;
+  if (realOutcome===0 && resultCorrect) points += 1; // empate certo com placar errado
+
+  return points;
+}
+
+/* texto descritivo do ponto obtido, para o badge */
+function pointsLabel(gHome, gAway, rHome, rAway, pts){
+  if (pts===5) return 'Placar exato';
+  if (pts===0) return 'Sem pontos';
+  const guessOutcome = Math.sign(gHome - gAway);
+  const realOutcome = Math.sign(rHome - rAway);
+  const resultCorrect = guessOutcome === realOutcome;
+  const goalMatch = (gHome===rHome) || (gAway===rAway);
+  if (resultCorrect && realOutcome===0 && !goalMatch) return 'Empate certo, placar errado';
+  if (resultCorrect && goalMatch) return 'Resultado certo + gol certo';
+  if (resultCorrect) return 'Resultado certo';
+  if (goalMatch) return 'Acerto de gol';
+  return 'Sem pontos';
 }
 
 /* ============================================================
@@ -653,7 +686,9 @@ function renderMatches(){
     let myPointsBadge = '';
     if (finished && mine){
       const p = calcPoints(mine.guess_home, mine.guess_away, m.result_home, m.result_away);
-      myPointsBadge = `<span class="guess-pts pts-${p}">${p===3?'Placar exato':(p===1?'Resultado certo':'Sem pontos')} · +${p}</span>`;
+      const label = pointsLabel(mine.guess_home, mine.guess_away, m.result_home, m.result_away, p);
+      const cls = p===0 ? 'pts-0' : (p>=5 ? 'pts-5' : (p>=3 ? 'pts-3' : 'pts-1'));
+      myPointsBadge = `<span class="guess-pts ${cls}">${label} · +${p}</span>`;
     }
 
     el.innerHTML = `
