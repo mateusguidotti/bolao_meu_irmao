@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -352,24 +353,19 @@ footer{ border-top:1px solid var(--pitch-line); padding:28px 0; text-align:cente
           <div class="field team-select">
             <div style="flex:1">
               <label>Time da casa</label>
-              <input type="text" id="m-casa" placeholder="Ex: Brasil" required>
+              <select id="m-casa" required>
+                <option value="" disabled selected>Selecione a seleção…</option>
+              </select>
             </div>
             <div class="vs-mid">vs</div>
             <div style="flex:1">
               <label>Time visitante</label>
-              <input type="text" id="m-fora" placeholder="Ex: Argentina" required>
+              <select id="m-fora" required>
+                <option value="" disabled selected>Selecione a seleção…</option>
+              </select>
             </div>
           </div>
-          <div class="form-grid">
-            <div class="field">
-              <label>Bandeira casa (emoji)</label>
-              <input type="text" id="m-flag-casa" placeholder="🇧🇷" maxlength="8">
-            </div>
-            <div class="field">
-              <label>Bandeira fora (emoji)</label>
-              <input type="text" id="m-flag-fora" placeholder="🇦🇷" maxlength="8">
-            </div>
-          </div>
+          <div class="helper-text">As bandeiras são definidas automaticamente a partir do cadastro de seleções no Supabase.</div>
           <div class="field">
             <label>Data e hora do jogo</label>
             <input type="datetime-local" id="m-data" required>
@@ -425,6 +421,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = null;
 let currentProfile = null;
 let allProfiles = [];
+let allTeams = [];
 let allMatches = [];
 let allGuesses = []; // every guess from every user
 
@@ -540,8 +537,25 @@ async function bootstrapApp(){
   const { data: profiles } = await sb.from('profiles').select('*').order('created_at', { ascending: true });
   allProfiles = profiles || [];
 
+  const { data: teams } = await sb.from('teams').select('*').order('name', { ascending: true });
+  allTeams = teams || [];
+  populateTeamSelects();
+
   await loadMatches();
   goPage('jogos');
+}
+
+function populateTeamSelects(){
+  const opts = allTeams.map(t => `<option value="${t.id}">${t.flag} ${t.name}</option>`).join('');
+  ['m-casa','m-fora'].forEach(id=>{
+    const sel = document.getElementById(id);
+    sel.innerHTML = `<option value="" disabled selected>Selecione a seleção…</option>` + opts;
+  });
+  if (allTeams.length===0){
+    ['m-casa','m-fora'].forEach(id=>{
+      document.getElementById(id).innerHTML = `<option value="" disabled selected>Nenhuma seleção cadastrada no Supabase</option>`;
+    });
+  }
 }
 
 /* ============================================================
@@ -773,12 +787,28 @@ document.getElementById('match-form').addEventListener('submit', async (e)=>{
   errEl.textContent = '';
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
 
+  const teamHomeId = document.getElementById('m-casa').value;
+  const teamAwayId = document.getElementById('m-fora').value;
+  const teamHome = allTeams.find(t => t.id === teamHomeId);
+  const teamAway = allTeams.find(t => t.id === teamAwayId);
+
+  if (!teamHome || !teamAway){
+    errEl.textContent = 'Selecione as duas seleções.';
+    btn.disabled = false; btn.textContent = 'Cadastrar jogo';
+    return;
+  }
+  if (teamHomeId === teamAwayId){
+    errEl.textContent = 'As seleções precisam ser diferentes.';
+    btn.disabled = false; btn.textContent = 'Cadastrar jogo';
+    return;
+  }
+
   const payload = {
     phase: document.getElementById('m-fase').value.trim(),
-    team_home: document.getElementById('m-casa').value.trim(),
-    team_away: document.getElementById('m-fora').value.trim(),
-    flag_home: document.getElementById('m-flag-casa').value.trim(),
-    flag_away: document.getElementById('m-flag-fora').value.trim(),
+    team_home: teamHome.name,
+    team_away: teamAway.name,
+    flag_home: teamHome.flag,
+    flag_away: teamAway.flag,
     match_date: new Date(document.getElementById('m-data').value).toISOString(),
     status: 'scheduled',
     created_by: currentUser.id
