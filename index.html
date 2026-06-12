@@ -398,7 +398,7 @@ footer{ border-top:1px solid var(--pitch-line); padding:28px 0; text-align:cente
         <div>
           <div class="eyebrow">Ranking</div>
           <h1>Classificação</h1>
-          <p>Pontuação total com base nos jogos já finalizados. 3 pontos por placar exato, 1 ponto por acertar o resultado.</p>
+          <p>Pontuação total com base nos jogos já finalizados: placar exato vale 5, e os bônus por resultado certo, gol certo e empate certo se somam nos demais casos.</p>
         </div>
       </div>
       <div class="leaderboard" id="leaderboard-list">
@@ -837,17 +837,17 @@ function renderLeaderboard(){
   const finished = allMatches.filter(m=>m.status==='finished');
 
   const rows = allProfiles.map(p=>{
-    let exact=0, outcome=0, miss=0, total=0;
+    let exact=0, partial=0, miss=0, total=0;
     finished.forEach(m=>{
       const g = allGuesses.find(x=>x.match_id===m.id && x.user_id===p.id);
       if (!g) return;
       const pts = calcPoints(g.guess_home, g.guess_away, m.result_home, m.result_away);
-      if (pts===3) exact++;
-      else if (pts===1) outcome++;
+      if (pts===5) exact++;
+      else if (pts>0) partial++;
       else miss++;
       total += pts;
     });
-    return { p, exact, outcome, miss, total };
+    return { p, exact, partial, miss, total };
   }).sort((a,b)=> b.total - a.total);
 
   wrap.innerHTML = '';
@@ -857,9 +857,9 @@ function renderLeaderboard(){
     el.innerHTML = `
       <div class="lb-rank">${i+1}</div>
       <div class="lb-name">${r.p.name}<span class="lb-email">${r.p.email}</span></div>
-      <div class="lb-stat"><div class="lb-stat-value">${r.exact}</div><div class="lb-stat-label">Exatos</div></div>
-      <div class="lb-stat"><div class="lb-stat-value">${r.outcome}</div><div class="lb-stat-label">Resultado</div></div>
-      <div class="lb-stat total"><div class="lb-stat-value">${r.total}</div><div class="lb-stat-label">Pontos</div></div>
+      <div class="lb-stat"><div class="lb-stat-value">${r.exact}</div><div class="lb-stat-label">Placar exato (5)</div></div>
+      <div class="lb-stat"><div class="lb-stat-value">${r.partial}</div><div class="lb-stat-label">Pontos parciais</div></div>
+      <div class="lb-stat total"><div class="lb-stat-value">${r.total}</div><div class="lb-stat-label">Total</div></div>
     `;
     wrap.appendChild(el);
   });
