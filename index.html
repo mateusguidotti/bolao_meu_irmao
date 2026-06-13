@@ -153,12 +153,26 @@ main{ padding:40px 0 80px; }
 
 /* ============ MATCH CARDS (signature) ============ */
 .matches{ display:flex; flex-direction:column; gap:14px; }
+.match-wrap{ display:flex; flex-direction:column; }
+.match-points-footer{
+  font-family:var(--mono); font-size:11px; color:var(--chalk-dim);
+  padding:10px 24px; border:1px solid var(--pitch-line); border-top:none; border-radius:0 0 14px 14px;
+  margin-top:-1px; background:rgba(244,241,230,.02);
+  display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+}
+.match-points-footer .label{ text-transform:uppercase; letter-spacing:.15em; }
+.match-points-footer.pts-5 .value{ color:var(--amber); font-weight:700; }
+.match-points-footer.pts-3 .value{ color:var(--amber); }
+.match-points-footer.pts-1 .value{ color:var(--teal); }
+.match-points-footer.pts-0 .value{ color:var(--chalk-dim); }
+@media (max-width:760px){ .match-points-footer{ justify-content:center; text-align:center; } }
 .match{
   display:grid; grid-template-columns:120px 1fr auto; align-items:center; gap:20px;
   background:var(--pitch); border:1px solid var(--pitch-line); border-radius:14px; padding:20px 24px;
   position:relative; overflow:hidden;
 }
 .match.locked{ opacity:.55; }
+.match.has-footer{ border-radius:14px 14px 0 0; }
 .match.finished::before{
   content:'ENCERRADO'; position:absolute; top:14px; right:14px; font-family:var(--mono); font-size:9px;
   letter-spacing:.2em; color:var(--chalk-dim); border:1px solid var(--pitch-line); padding:3px 8px; border-radius:4px;
@@ -185,11 +199,12 @@ main{ padding:40px 0 80px; }
   padding:6px 0; background:rgba(244,241,230,.05); border:1px solid var(--pitch-line); border-radius:6px; color:var(--amber);
 }
 .flip-inputs span{ color:var(--chalk-dim); font-family:var(--display); font-size:20px; }
-.guess-pts{ font-family:var(--mono); font-size:11px; padding:3px 8px; border-radius:5px; border:1px solid var(--pitch-line); }
+.guess-pts{ font-family:var(--mono); font-size:10px; padding:3px 8px; border-radius:5px; border:1px solid var(--pitch-line); white-space:nowrap; align-self:flex-end; }
 .guess-pts.pts-5{ color:var(--amber); border-color:rgba(255,198,64,.5); background:var(--amber-dim); font-weight:700; }
 .guess-pts.pts-3{ color:var(--amber); border-color:rgba(255,198,64,.4); background:var(--amber-dim); }
 .guess-pts.pts-1{ color:var(--teal); border-color:rgba(62,207,142,.35); background:rgba(62,207,142,.08); }
 .guess-pts.pts-0{ color:var(--chalk-dim); }
+@media (max-width:760px){ .guess-pts{ align-self:center; white-space:normal; text-align:center; } }
 .empty-state{ text-align:center; padding:60px 20px; color:var(--chalk-dim); border:1px dashed var(--pitch-line); border-radius:14px; }
 .empty-state .em-title{ font-family:var(--display); font-size:26px; color:var(--chalk); margin-bottom:6px; }
 
@@ -715,12 +730,13 @@ function renderMatches(){
       ? `<div class="score-display">${m.result_home} : ${m.result_away}</div>`
       : `<div class="score-display tbd">${started?'EM ANDAMENTO':'VS'}</div>`;
 
-    let myPointsBadge = '';
+    let footerHtml = '';
     if (finished && mine){
       const p = calcPoints(mine.guess_home, mine.guess_away, m.result_home, m.result_away);
       const label = pointsLabel(mine.guess_home, mine.guess_away, m.result_home, m.result_away, p);
       const cls = p===0 ? 'pts-0' : (p>=6 ? 'pts-5' : (p>=3 ? 'pts-3' : 'pts-1'));
-      myPointsBadge = `<span class="guess-pts ${cls}">${label} · +${p}</span>`;
+      footerHtml = `<div class="match-points-footer ${cls}"><span class="label">Seu resultado</span><span class="value">${label} · +${p} pts</span></div>`;
+      el.classList.add('has-footer');
     }
 
     el.innerHTML = `
@@ -744,7 +760,6 @@ function renderMatches(){
                 <input type="number" min="0" max="99" id="ga-${m.id}" value="${mine? mine.guess_away : ''}">
                </div>`
           }
-          ${myPointsBadge}
         </div>
         <div class="guess-row">
           <span class="gr-label">${op? op.name.split(' ')[0] : 'Outro'}</span>
@@ -757,7 +772,16 @@ function renderMatches(){
         ${locked? '' : `<button class="btn btn-primary btn-sm" onclick="saveGuess('${m.id}')">Salvar palpite</button>`}
       </div>
     `;
-    wrap.appendChild(el);
+
+    const matchWrap = document.createElement('div');
+    matchWrap.className = 'match-wrap';
+    matchWrap.appendChild(el);
+    if (footerHtml){
+      const footerEl = document.createElement('div');
+      footerEl.innerHTML = footerHtml;
+      matchWrap.appendChild(footerEl.firstElementChild);
+    }
+    wrap.appendChild(matchWrap);
   });
 }
 
