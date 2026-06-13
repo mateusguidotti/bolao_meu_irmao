@@ -233,6 +233,24 @@ main{ padding:40px 0 80px; }
 /* ============ MATCH FORM (new) ============ */
 .team-select{ display:flex; align-items:center; gap:14px; }
 .team-select .vs-mid{ font-family:var(--display); font-size:24px; color:var(--chalk-dim); }
+.team-autocomplete{ position:relative; flex:1; }
+.team-autocomplete input{ width:100%; }
+.team-autocomplete input.has-value{ color:var(--chalk); }
+.ac-dropdown{
+  position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:100;
+  background:var(--pitch); border:1px solid rgba(255,198,64,.4); border-radius:var(--radius);
+  overflow:hidden; box-shadow:0 12px 32px rgba(0,0,0,.45);
+  max-height:220px; overflow-y:auto;
+}
+.ac-item{
+  padding:11px 14px; cursor:pointer; display:flex; align-items:center; gap:10px;
+  font-size:14px; font-weight:500; transition:background .1s;
+}
+.ac-item:hover, .ac-item.highlighted{ background:rgba(255,198,64,.1); }
+.ac-item .ac-flag{ font-size:20px; line-height:1; }
+.ac-item .ac-name{ color:var(--chalk); }
+.ac-item .ac-name mark{ background:none; color:var(--amber); font-weight:700; }
+.ac-empty{ padding:11px 14px; font-family:var(--mono); font-size:12px; color:var(--chalk-dim); }
 
 /* ============ MISC ============ */
 .section-divider{ height:1px; background:var(--pitch-line); margin:48px 0; }
@@ -366,18 +384,16 @@ footer{ border-top:1px solid var(--pitch-line); padding:28px 0; text-align:cente
             <input type="text" id="m-fase" placeholder="Ex: Grupo A · Rodada 1" required>
           </div>
           <div class="field team-select">
-            <div style="flex:1">
+            <div class="team-autocomplete" id="ac-casa">
               <label>Time da casa</label>
-              <select id="m-casa" required>
-                <option value="" disabled selected>Selecione a seleção…</option>
-              </select>
+              <input type="text" id="m-casa-input" placeholder="Digite para buscar…" autocomplete="off">
+              <div class="ac-dropdown hidden" id="ac-casa-drop"></div>
             </div>
             <div class="vs-mid">vs</div>
-            <div style="flex:1">
+            <div class="team-autocomplete" id="ac-fora">
               <label>Time visitante</label>
-              <select id="m-fora" required>
-                <option value="" disabled selected>Selecione a seleção…</option>
-              </select>
+              <input type="text" id="m-fora-input" placeholder="Digite para buscar…" autocomplete="off">
+              <div class="ac-dropdown hidden" id="ac-fora-drop"></div>
             </div>
           </div>
           <div class="helper-text">As bandeiras são definidas automaticamente a partir do cadastro de seleções no Supabase.</div>
@@ -560,17 +576,96 @@ async function bootstrapApp(){
   goPage('jogos');
 }
 
+/* ============================================================
+   AUTOCOMPLETE DE SELEÇÕES
+   ============================================================ */
+const acState = {
+  casa: { selectedId: null, selectedName: '', selectedFlag: '' },
+  fora: { selectedId: null, selectedName: '', selectedFlag: '' }
+};
+
 function populateTeamSelects(){
-  const opts = allTeams.map(t => `<option value="${t.id}">${t.flag} ${t.name}</option>`).join('');
-  ['m-casa','m-fora'].forEach(id=>{
-    const sel = document.getElementById(id);
-    sel.innerHTML = `<option value="" disabled selected>Selecione a seleção…</option>` + opts;
-  });
-  if (allTeams.length===0){
-    ['m-casa','m-fora'].forEach(id=>{
-      document.getElementById(id).innerHTML = `<option value="" disabled selected>Nenhuma seleção cadastrada no Supabase</option>`;
-    });
+  setupAutocomplete('casa');
+  setupAutocomplete('fora');
+}
+
+function setupAutocomplete(side){
+  const input = document.getElementById(`m-${side}-input`);
+  const drop  = document.getElementById(`ac-${side}-drop`);
+  let hiIdx = -1;
+
+  function getFiltered(q){
+    const norm = q.trim().toLowerCase();
+    if (!norm) return [];
+    return allTeams.filter(t => t.name.toLowerCase().includes(norm));
   }
+
+  function highlight(text, q){
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return text;
+    return text.slice(0,idx) + '<mark>' + text.slice(idx, idx+q.length) + '</mark>' + text.slice(idx+q.length);
+  }
+
+  function renderDrop(q){
+    const results = getFiltered(q);
+    hiIdx = -1;
+    if (!results.length){
+      drop.innerHTML = `<div class="ac-empty">Nenhuma seleção encontrada</div>`;
+    } else {
+      drop.innerHTML = results.map((t,i) =>
+        `<div class="ac-item" data-id="${t.id}" data-name="${t.name}" data-flag="${t.flag}" data-idx="${i}">
+          <span class="ac-flag">${t.flag}</span>
+          <span class="ac-name">${highlight(t.name, q)}</span>
+        </div>`
+      ).join('');
+      drop.querySelectorAll('.ac-item').forEach(el => {
+        el.addEventListener('mousedown', e => {
+          e.preventDefault();
+          selectTeam(side, el.dataset.id, el.dataset.name, el.dataset.flag);
+        });
+      });
+    }
+    drop.classList.remove('hidden');
+  }
+
+  function closeDrop(){ drop.classList.add('hidden'); hiIdx = -1; }
+
+  function selectTeam(s, id, name, flag){
+    acState[s] = { selectedId: id, selectedName: name, selectedFlag: flag };
+    document.getElementById(`m-${s}-input`).value = `${flag} ${name}`;
+    closeDrop();
+  }
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    acState[side] = { selectedId: null, selectedName: '', selectedFlag: '' };
+    if (!q){ closeDrop(); return; }
+    renderDrop(q);
+  });
+
+  input.addEventListener('keydown', e => {
+    const items = drop.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      hiIdx = Math.min(hiIdx+1, items.length-1);
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      hiIdx = Math.max(hiIdx-1, 0);
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      if (hiIdx >= 0){ const it = items[hiIdx]; selectTeam(side, it.dataset.id, it.dataset.name, it.dataset.flag); }
+      return;
+    } else if (e.key === 'Escape'){
+      closeDrop(); return;
+    } else return;
+    items.forEach((el,i) => el.classList.toggle('highlighted', i===hiIdx));
+  });
+
+  input.addEventListener('blur', () => setTimeout(closeDrop, 150));
+  input.addEventListener('focus', () => {
+    if (input.value.trim() && !acState[side].selectedId) renderDrop(input.value.trim());
+  });
 }
 
 /* ============================================================
@@ -811,8 +906,8 @@ document.getElementById('match-form').addEventListener('submit', async (e)=>{
   errEl.textContent = '';
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
 
-  const teamHomeId = document.getElementById('m-casa').value;
-  const teamAwayId = document.getElementById('m-fora').value;
+  const teamHomeId = acState.casa.selectedId;
+  const teamAwayId = acState.fora.selectedId;
   const teamHome = allTeams.find(t => t.id === teamHomeId);
   const teamAway = allTeams.find(t => t.id === teamAwayId);
 
@@ -843,6 +938,10 @@ document.getElementById('match-form').addEventListener('submit', async (e)=>{
   if (error){ errEl.textContent = error.message; return; }
 
   document.getElementById('match-form').reset();
+  document.getElementById('m-casa-input').value = '';
+  document.getElementById('m-fora-input').value = '';
+  acState.casa = { selectedId: null, selectedName: '', selectedFlag: '' };
+  acState.fora = { selectedId: null, selectedName: '', selectedFlag: '' };
   toast('Jogo cadastrado!');
   await loadMatches();
 });
