@@ -585,24 +585,35 @@ async function bootstrapApp(){
   if (bootstrapping) return;
   bootstrapping = true;
 
-  // Timeout de segurança: se travar por mais de 12s, mostra erro + retry
   const timeoutId = setTimeout(() => {
     if (bootstrapping) {
       bootstrapping = false;
       document.getElementById('matches-list').innerHTML = `
         <div class="empty-state">
           <div class="em-title">Tempo esgotado</div>
-          <p style="margin-bottom:16px">O carregamento demorou demais. Verifique sua conexão.</p>
+          <p style="margin-bottom:16px">Verifique sua conexão e tente novamente.</p>
           <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
         </div>`;
     }
   }, 12000);
 
   try {
+    // getSession() espera qualquer refresh de token em andamento completar,
+    // garantindo que as queries seguintes usem um token válido.
+    const { data: { session }, error: sessErr } = await sb.auth.getSession();
+    console.log('[boot] session:', session ? 'ok' : 'null', sessErr || '');
+
+    if (sessErr || !session) {
+      console.warn('[boot] sessão inválida → logout');
+      await sb.auth.signOut();
+      showAuth();
+      return;
+    }
+    currentUser = session.user;
     showApp();
 
-    // Garante que o profile existe
     let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+    console.log('[boot] profile:', profile ? 'ok' : 'null', profileError?.code || '');
     if (profileError && profileError.code !== 'PGRST116') throw profileError;
     if (!profile){
       const name = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
@@ -626,11 +637,11 @@ async function bootstrapApp(){
     goPage('jogos');
 
   } catch (err) {
-    console.error('Erro no bootstrap:', err);
+    console.error('[boot] erro:', err);
     document.getElementById('matches-list').innerHTML = `
       <div class="empty-state">
         <div class="em-title">Falha ao carregar</div>
-        <p style="margin-bottom:16px">Verifique sua conexão e tente novamente.</p>
+        <p style="margin-bottom:16px">${err.message || 'Erro desconhecido. Verifique sua conexão.'}</p>
         <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
       </div>`;
   } finally {
