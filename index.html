@@ -537,43 +537,94 @@ async function logout(){
 /* ============================================================
    SESSION / BOOTSTRAP
    ============================================================ */
-sb.auth.onAuthStateChange(async (event, session)=>{
-  if (session && session.user){
+let bootstrapping = false;
+
+function showAuth(){
+  bootstrapping = false;
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('matches-list').innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+}
+
+function showApp(){
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
+
+// Verifica a sessão atual antes de qualquer coisa para evitar flash de spinner
+(async () => {
+  const { data: { session }, error } = await sb.auth.getSession();
+  if (error || !session) { showAuth(); return; }
+  currentUser = session.user;
+  await bootstrapApp();
+})();
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+    currentUser = null;
+    showAuth();
+    return;
+  }
+  if (event === 'TOKEN_REFRESHED' && session) {
+    currentUser = session.user;
+    return; // já está logado, não precisa recarregar tudo
+  }
+  if (event === 'SIGNED_IN' && session) {
+    if (bootstrapping) return; // já está carregando
     currentUser = session.user;
     await bootstrapApp();
-  } else {
-    currentUser = null;
-    document.getElementById('auth-screen').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
   }
 });
 
 async function bootstrapApp(){
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
+  if (bootstrapping) return;
+  bootstrapping = true;
 
-  // garante que o profile existe
-  let { data: profile } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
-  if (!profile){
-    const name = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
-    await sb.from('profiles').insert({ id: currentUser.id, name, email: currentUser.email });
-    const r = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
-    profile = r.data;
+  try {
+    showApp();
+
+    // Valida que a sessão ainda é aceita pelo Supabase
+    const { data: { user }, error: userError } = await sb.auth.getUser();
+    if (userError || !user) { await sb.auth.signOut(); showAuth(); return; }
+    currentUser = user;
+
+    // Garante que o profile existe
+    let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+    if (profileError && profileError.code !== 'PGRST116') throw profileError;
+    if (!profile){
+      const name = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
+      await sb.from('profiles').insert({ id: currentUser.id, name, email: currentUser.email });
+      const r = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+      profile = r.data;
+    }
+    currentProfile = profile;
+
+    document.getElementById('chip-name').textContent = currentProfile.name;
+    document.getElementById('chip-email').textContent = currentProfile.email;
+
+    const { data: profiles } = await sb.from('profiles').select('*').order('created_at', { ascending: true });
+    allProfiles = profiles || [];
+
+    const { data: teams } = await sb.from('teams').select('*').order('name', { ascending: true });
+    allTeams = teams || [];
+    populateTeamSelects();
+
+    await loadMatches();
+    goPage('jogos');
+
+  } catch (err) {
+    console.error('Erro no bootstrap:', err);
+    toast('Erro ao carregar o app. Tente novamente.', 'error');
+    // Mostra botão de retry em vez de travar no spinner
+    document.getElementById('matches-list').innerHTML = `
+      <div class="empty-state">
+        <div class="em-title">Falha ao carregar</div>
+        <p style="margin-bottom:16px">Verifique sua conexão e tente novamente.</p>
+        <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
+      </div>`;
+  } finally {
+    bootstrapping = false;
   }
-  currentProfile = profile;
-
-  document.getElementById('chip-name').textContent = currentProfile.name;
-  document.getElementById('chip-email').textContent = currentProfile.email;
-
-  const { data: profiles } = await sb.from('profiles').select('*').order('created_at', { ascending: true });
-  allProfiles = profiles || [];
-
-  const { data: teams } = await sb.from('teams').select('*').order('name', { ascending: true });
-  allTeams = teams || [];
-  populateTeamSelects();
-
-  await loadMatches();
-  goPage('jogos');
 }
 
 /* ============================================================
