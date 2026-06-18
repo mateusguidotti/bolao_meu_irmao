@@ -562,26 +562,22 @@ sb.auth.onAuthStateChange(async (event, session) => {
     return;
   }
 
-  // INITIAL_SESSION: disparado ao abrir a página, com sessão salva ou null
+  // INITIAL_SESSION: disparado ao abrir/reabrir a página
   // SIGNED_IN: disparado após login bem-sucedido
-  if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+  // TOKEN_REFRESHED: token renovado em background
+  if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
     if (!session || !session.user) {
-      showAuth();
+      // INITIAL_SESSION com session null = sem sessão salva → login
+      if (event === 'INITIAL_SESSION') showAuth();
       return;
     }
     if (bootstrapping) return;
-    currentUser = session.user;
-    await bootstrapApp();
-    return;
-  }
-
-  // TOKEN_REFRESHED: token renovado em background, não precisa recarregar
-  if (event === 'TOKEN_REFRESHED' && session) {
-    currentUser = session.user;
+    // Passa a sessão diretamente para evitar chamar getSession() de novo
+    await bootstrapApp(session);
   }
 });
 
-async function bootstrapApp(){
+async function bootstrapApp(session){
   if (bootstrapping) return;
   bootstrapping = true;
 
@@ -598,22 +594,10 @@ async function bootstrapApp(){
   }, 12000);
 
   try {
-    // getSession() espera qualquer refresh de token em andamento completar,
-    // garantindo que as queries seguintes usem um token válido.
-    const { data: { session }, error: sessErr } = await sb.auth.getSession();
-    console.log('[boot] session:', session ? 'ok' : 'null', sessErr || '');
-
-    if (sessErr || !session) {
-      console.warn('[boot] sessão inválida → logout');
-      await sb.auth.signOut();
-      showAuth();
-      return;
-    }
     currentUser = session.user;
     showApp();
 
     let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
-    console.log('[boot] profile:', profile ? 'ok' : 'null', profileError?.code || '');
     if (profileError && profileError.code !== 'PGRST116') throw profileError;
     if (!profile){
       const name = currentUser.user_metadata?.full_name || currentUser.email.split('@')[0];
