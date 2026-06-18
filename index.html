@@ -543,6 +543,7 @@ function showAuth(){
   bootstrapping = false;
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
+  // reseta spinner para próxima vez
   document.getElementById('matches-list').innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 }
 
@@ -551,28 +552,32 @@ function showApp(){
   document.getElementById('app').style.display = 'block';
 }
 
-// Verifica a sessão atual antes de qualquer coisa para evitar flash de spinner
-(async () => {
-  const { data: { session }, error } = await sb.auth.getSession();
-  if (error || !session) { showAuth(); return; }
-  currentUser = session.user;
-  await bootstrapApp();
-})();
-
+// onAuthStateChange é a ÚNICA fonte de verdade.
+// O primeiro evento sempre será INITIAL_SESSION (sessão salva ou null),
+// seguido de SIGNED_IN quando o usuário loga.
 sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
     currentUser = null;
     showAuth();
     return;
   }
-  if (event === 'TOKEN_REFRESHED' && session) {
-    currentUser = session.user;
-    return; // já está logado, não precisa recarregar tudo
-  }
-  if (event === 'SIGNED_IN' && session) {
-    if (bootstrapping) return; // já está carregando
+
+  // INITIAL_SESSION: disparado ao abrir a página, com sessão salva ou null
+  // SIGNED_IN: disparado após login bem-sucedido
+  if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+    if (!session || !session.user) {
+      showAuth();
+      return;
+    }
+    if (bootstrapping) return;
     currentUser = session.user;
     await bootstrapApp();
+    return;
+  }
+
+  // TOKEN_REFRESHED: token renovado em background, não precisa recarregar
+  if (event === 'TOKEN_REFRESHED' && session) {
+    currentUser = session.user;
   }
 });
 
@@ -580,13 +585,21 @@ async function bootstrapApp(){
   if (bootstrapping) return;
   bootstrapping = true;
 
+  // Timeout de segurança: se travar por mais de 12s, mostra erro + retry
+  const timeoutId = setTimeout(() => {
+    if (bootstrapping) {
+      bootstrapping = false;
+      document.getElementById('matches-list').innerHTML = `
+        <div class="empty-state">
+          <div class="em-title">Tempo esgotado</div>
+          <p style="margin-bottom:16px">O carregamento demorou demais. Verifique sua conexão.</p>
+          <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
+        </div>`;
+    }
+  }, 12000);
+
   try {
     showApp();
-
-    // Valida que a sessão ainda é aceita pelo Supabase
-    const { data: { user }, error: userError } = await sb.auth.getUser();
-    if (userError || !user) { await sb.auth.signOut(); showAuth(); return; }
-    currentUser = user;
 
     // Garante que o profile existe
     let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
@@ -614,8 +627,6 @@ async function bootstrapApp(){
 
   } catch (err) {
     console.error('Erro no bootstrap:', err);
-    toast('Erro ao carregar o app. Tente novamente.', 'error');
-    // Mostra botão de retry em vez de travar no spinner
     document.getElementById('matches-list').innerHTML = `
       <div class="empty-state">
         <div class="em-title">Falha ao carregar</div>
@@ -623,6 +634,7 @@ async function bootstrapApp(){
         <button class="btn btn-primary" onclick="location.reload()">Recarregar</button>
       </div>`;
   } finally {
+    clearTimeout(timeoutId);
     bootstrapping = false;
   }
 }
