@@ -684,7 +684,7 @@ function goPage(page){
    DATA LOADING
    ============================================================ */
 async function loadMatches(){
-  const { data: matches, error } = await sb.from('matches').select('*').order('match_date', { ascending: true });
+  const { data: matches, error } = await sb.from('matches').select('*').order('match_date', { ascending: false });
   if (error){ toast('Erro ao carregar jogos: '+error.message, 'error'); return; }
   allMatches = matches || [];
 
